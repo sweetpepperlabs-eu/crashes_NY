@@ -45,7 +45,7 @@
   <div id="map"></div>
   <aside class="panel">
     <h1>10 years of NYC motor vehicle crashes</h1>
-    <p>Points from September 2016 through September 2026. </p>
+    <p>Each point represents a motor vehicle crash. From September 2016 through September 2026. </p>
     <label for="year">Year</label>
     <select id="year"></select>
     <div class="legend">
@@ -61,7 +61,7 @@
     const protocol = new pmtiles.Protocol();
     maplibregl.addProtocol("pmtiles", protocol.tile);
 
-    const tilesUrl = new URL("../data/MotorVehicleCollisionsCrashes_201609_202609.pmtiles", window.location.href).href;
+    const tilesUrl = new URL("data/MotorVehicleCollisionsCrashes_201609_202609.pmtiles", window.location.href).href;
     const yearSelect = document.getElementById("year");
 
     const yearOptions = ["all", ...Array.from({ length: 11 }, (_, i) => 2016 + i)];
