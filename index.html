@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>NYC crashes, September 2016 – September 2026</title>
+  <link href="https://unpkg.com/maplibre-gl@5.6.1/dist/maplibre-gl.css" rel="stylesheet" />
+  <style>
+    html, body, #map { margin: 0; height: 100%; width: 100%; }
+    body { font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif; color: #f4f1ea; }
+    .panel {
+      position: absolute;
+      top: 16px;
+      left: 16px;
+      z-index: 2;
+      width: min(340px, calc(100vw - 32px));
+      padding: 14px 16px 12px;
+      background: rgba(18, 20, 24, 0.88);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 12px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+    }
+    h1 { margin: 0 0 4px; font-size: 20px; font-weight: 600; letter-spacing: -0.02em; }
+    p { margin: 0; font-family: "Avenir Next", "Segoe UI", sans-serif; font-size: 13px; line-height: 1.4; color: #c9c3b8; }
+    label { display: block; margin: 12px 0 6px; font-family: "Avenir Next", "Segoe UI", sans-serif; font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase; color: #9d978c; }
+    select {
+      width: 100%;
+      padding: 8px 10px;
+      border-radius: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      background: #121418;
+      color: #f4f1ea;
+      font: 15px "Avenir Next", "Segoe UI", sans-serif;
+    }
+    .legend { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; font-family: "Avenir Next", "Segoe UI", sans-serif; font-size: 13px; }
+    .swatch { display: flex; align-items: center; gap: 8px; }
+    .dot { width: 12px; height: 12px; border-radius: 50%; flex: none; }
+    .dot.crash { background: #1d6fbf; opacity: 0.9; }
+    .dot.killed { background: #e11d48; box-shadow: 0 0 0 2px #ffffff; }
+    .maplibregl-popup-content { color: #1b1a17; font-family: "Avenir Next", "Segoe UI", sans-serif; font-size: 13px; line-height: 1.45; }
+    .maplibregl-popup-content strong { font-family: "Iowan Old Style", Georgia, serif; font-size: 15px; }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <aside class="panel">
+    <h1>10 years of NYC motor vehicle crashes</h1>
+    <p>Points from September 2016 through September 2026. </p>
+    <label for="year">Year</label>
+    <select id="year"></select>
+    <div class="legend">
+      <div class="swatch"><span class="dot crash"></span> Crash, nobody killed</div>
+      <div class="swatch"><span class="dot killed"></span> A person was killed</div>
+    </div>
+    <p id="map-error" hidden style="margin-top:10px;color:#ffb4b4;"></p>
+  </aside>
+
+  <script src="https://unpkg.com/maplibre-gl@5.6.1/dist/maplibre-gl.js"></script>
+  <script src="https://unpkg.com/pmtiles@4.3.0/dist/pmtiles.js"></script>
+  <script>
+    const protocol = new pmtiles.Protocol();
+    maplibregl.addProtocol("pmtiles", protocol.tile);
+
+    const tilesUrl = new URL("../data/MotorVehicleCollisionsCrashes_201609_202609.pmtiles", window.location.href).href;
+    const yearSelect = document.getElementById("year");
+
+    const yearOptions = ["all", ...Array.from({ length: 11 }, (_, i) => 2016 + i)];
+    for (const year of yearOptions) {
+      const option = document.createElement("option");
+      option.value = String(year);
+      option.textContent = year === "all"
+        ? "All years"
+        : year === 2016
+          ? "2016 (from September)"
+          : year === 2026
+            ? "2026 (through September)"
+            : String(year);
+      yearSelect.appendChild(option);
+    }
+
+    const map = new maplibregl.Map({
+      container: "map",
+      style: "https://tiles.openfreemap.org/styles/positron",
+      center: [-73.94, 40.73],
+      zoom: 10,
+      hash: true
+    });
+    map.on("error", (event) => {
+      const note = document.getElementById("map-error");
+      if (!note) return;
+      note.hidden = false;
+      note.textContent = event.error ? event.error.message : "Map error";
+    });
+    map.addControl(new maplibregl.NavigationControl(), "top-right");
+    map.addControl(new maplibregl.ScaleControl({ unit: "metric" }));
+
+    const crashPaint = {
+      "circle-radius": ["interpolate", ["linear"], ["zoom"], 8, 1.1, 12, 2.2, 15, 4],
+      "circle-color": "#1d6fbf",
+      "circle-opacity": 0.7
+    };
+    // Smallest zoom stays a small dot that grows with the map. Larger zooms
+    // step up faster so a fatal crash stays easy to see on the street.
+    const killedPaint = {
+      "circle-radius": ["interpolate", ["linear"], ["zoom"], 8, 1.7, 11, 3, 14, 12, 16, 26, 18, 44],
+      "circle-color": "#e11d48",
+      "circle-opacity": 0.95,
+      "circle-stroke-width": ["interpolate", ["linear"], ["zoom"], 11, 0, 14, 1.2, 17, 2],
+      "circle-stroke-color": "#ffffff"
+    };
+
+    function applyYear() {
+      if (!map.getLayer("crashes")) return;
+      const year = yearSelect.value;
+      const filter = year === "all" ? null : ["==", ["get", "year"], Number(year)];
+      map.setFilter("crashes", filter);
+      map.setFilter("killed", filter);
+    }
+
+    function popupHtml(props) {
+      const killed = Number(props.persons_killed || 0);
+      const injured = Number(props.persons_injured || 0);
+      const place = [props.on_street, props.borough].filter(Boolean).join(", ") || "Location not named";
+      const date = String(props.crash_date || "").replaceAll("/", "-");
+      return `<strong>${escapeHtml(place)}</strong><br>${escapeHtml(date)}<br>${injured} injured · ${killed} killed`;
+    }
+
+    function escapeHtml(value) {
+      return String(value).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+    }
+
+    function showPopup(event) {
+      const feature = event.features && event.features[0];
+      if (!feature) return;
+      new maplibregl.Popup({ closeButton: false, maxWidth: "260px" })
+        .setLngLat(event.lngLat)
+        .setHTML(popupHtml(feature.properties))
+        .addTo(map);
+    }
+
+    map.on("load", () => {
+      map.addSource("crashes", {
+        type: "vector",
+        url: `pmtiles://${tilesUrl}`
+      });
+      // Fatal crashes are stored through zoom 14. Capping this source there
+      // keeps those points on the map when the view is zoomed in further.
+      map.addSource("killed", {
+        type: "vector",
+        tiles: [`pmtiles://${tilesUrl}/{z}/{x}/{y}`],
+        minzoom: 8,
+        maxzoom: 14
+      });
+      map.addLayer({
+        id: "crashes",
+        type: "circle",
+        source: "crashes",
+        "source-layer": "crashes",
+        paint: crashPaint
+      });
+      map.addLayer({
+        id: "killed",
+        type: "circle",
+        source: "killed",
+        "source-layer": "killed",
+        paint: killedPaint
+      });
+      for (const id of ["crashes", "killed"]) {
+        map.on("click", id, showPopup);
+        map.on("mouseenter", id, () => { map.getCanvas().style.cursor = "pointer"; });
+        map.on("mouseleave", id, () => { map.getCanvas().style.cursor = ""; });
+      }
+    });
+
+    yearSelect.addEventListener("change", applyYear);
+  </script>
+</body>
+</html>
